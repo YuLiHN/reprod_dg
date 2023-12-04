@@ -1,6 +1,6 @@
 import torch
 import os
-from training.classifier import EncoderUNetModel
+from training.unet import EncoderUNetModel
 
 def classifier_defaults():
     """
@@ -17,13 +17,13 @@ def classifier_defaults():
         classifier_pool="attention",
     )
 
-def get_discriminator(latent_extractor_ckpt, discriminator_ckpt, condition, img_resolution=32, device='cuda', enable_grad=True):
+def get_discriminator(latent_extractor_ckpt, discriminator_ckpt, n_class, img_resolution=32, device='cuda', enable_grad=True):
     classifier = load_classifier(latent_extractor_ckpt, img_resolution, device)
-    discriminator = load_discriminator(discriminator_ckpt, device)
-    def evaluate(perturbed_inputs, timesteps=None, condition=None):
+    discriminator = load_discriminator(discriminator_ckpt, n_class, device)
+    def evaluate(perturbed_inputs, timesteps=None, class_labels=None):
         with torch.enable_grad() if enable_grad else torch.no_grad():
             adm_features = classifier(perturbed_inputs, timesteps=timesteps, feature=True)
-            prediction = discriminator(adm_features, timesteps, sigmoid=True, condition=condition).view(-1)
+            prediction = discriminator(adm_features, timesteps, sigmoid=True, class_labels=class_labels).view(-1)
         return prediction
     return evaluate
 
@@ -39,6 +39,7 @@ def load_classifier(ckpt_path, img_resolution, device):
       classifier_pool="attention",
       in_channels=3,
       out_channels=1000,
+      n_class=None
     )
     classifier = create_classifier(**classifier_args)
     classifier.to(device)
@@ -49,7 +50,7 @@ def load_classifier(ckpt_path, img_resolution, device):
     classifier.eval()
     return classifier
 
-def load_discriminator(ckpt_path, device, eval=False, channel=512):
+def load_discriminator(ckpt_path, n_class, device, eval=False, channel=512):
     discriminator_args = dict(
       image_size=8,
       classifier_use_fp16=False,
@@ -61,6 +62,7 @@ def load_discriminator(ckpt_path, device, eval=False, channel=512):
       classifier_pool="attention",
       out_channels=1,
       in_channels=channel,
+      n_class=n_class
     )
     discriminator = create_classifier(**discriminator_args)
     discriminator.to(device)
@@ -83,6 +85,7 @@ def create_classifier(
     classifier_use_scale_shift_norm,
     classifier_resblock_updown,
     classifier_pool,
+    n_class,
 ):
     if image_size == 512:
         channel_mult = (0.5, 1, 1, 2, 2, 4, 4)
@@ -118,6 +121,7 @@ def create_classifier(
         use_scale_shift_norm=classifier_use_scale_shift_norm,
         resblock_updown=classifier_resblock_updown,
         pool=classifier_pool,
+        n_class=n_class,
     )
 
 def get_grad_log_ratio(discriminator, unnormalized_input, std_wve_t, img_resolution,time_min, time_max, class_labels):
@@ -148,7 +152,7 @@ def get_log_ratio(discriminator, input, time, class_labels):
     if discriminator == None:
         return torch.zeros(input.shape[0], device=input.device)
     else:
-        logits = discriminator(input, timesteps=time, condition=class_labels)
+        logits = discriminator(input, timesteps=time, class_labels=class_labels)
         prediction = torch.clip(logits, 1e-5, 1. - 1e-5)
         log_ratio = torch.log(prediction / (1. - prediction))
         return log_ratio

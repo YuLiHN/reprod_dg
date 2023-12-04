@@ -708,6 +708,7 @@ class EncoderUNetModel(nn.Module):
         resblock_updown=False,
         use_new_attention_order=False,
         pool="adaptive",
+        n_class=None,
     ):
         super().__init__()
 
@@ -734,6 +735,11 @@ class EncoderUNetModel(nn.Module):
             nn.SiLU(),
             linear(time_embed_dim, time_embed_dim),
         )
+
+        self.n_class = n_class
+        if n_class is not None:
+            # self.class_embd = th.nn.Embedding(n_class, time_embed_dim)
+            self.label_emb = th.nn.Embedding(n_class, time_embed_dim) # aligned with pretrained discriminator model
 
         ch = int(channel_mult[0] * model_channels)
         self.input_blocks = nn.ModuleList(
@@ -868,15 +874,29 @@ class EncoderUNetModel(nn.Module):
         self.input_blocks.apply(convert_module_to_f32)
         self.middle_block.apply(convert_module_to_f32)
 
-    def forward(self, x, timesteps, feature=False, sigmoid=False, condition=False):
+    def forward(self, x, timesteps, feature=False, sigmoid=False, class_labels=None):
         """
         Apply the model to an input batch.
 
         :param x: an [N x C x ...] Tensor of inputs.
         :param timesteps: a 1-D batch of timesteps.
+        :param feature: if return feature for adm classifier
+        :param sigmoid: if sigmoid the output
+        :param class_label: class label for generation
         :return: an [N x K] Tensor of outputs.
         """
         emb = self.time_embed(timestep_embedding(timesteps, self.model_channels))
+
+        if self.n_class is not None:
+            if class_labels is None:
+                raise NotImplementedError("this is a conditional model, please specify the label")
+            
+            class_idxs = class_labels.nonzero()[:,1]
+            # import pdb;pdb.set_trace()
+            # assert class_labels.nonzero()[:,1] == class_idxs
+            # embd_condition = self.class_embd(class_idxs)
+            embd_condition = self.label_emb(class_idxs)
+            emb += embd_condition
 
         results = []
         h = x.type(self.dtype)

@@ -249,7 +249,7 @@ def parse_int_list(s):
 
 ## Discriminator checkpoint
 @click.option('--pretrained_classifier_ckpt',help='Path of ADM classifier(latent extractor)',  metavar='STR',       type=str, default='/checkpoints/classifier/32x32_classifier.pt', show_default=True)
-@click.option('--discriminator_ckpt',      help='Path of discriminator',  metavar='STR',                            type=str, default='/checkpoints/discriminator/discriminator_60.pt', show_default=True)
+@click.option('--discriminator_ckpt',      help='Path of discriminator',  metavar='STR',                            type=str, default='/checkpoints/discriminator/discriminator_250.pt', show_default=True)
 ## DG configuration
 @click.option('--dg_weight_1st_order',     help='Weight of DG for 1st prediction',       metavar='FLOAT',           type=click.FloatRange(min=0), default=2., show_default=True)
 @click.option('--dg_weight_2nd_order',     help='Weight of DG for 2nd prediction',       metavar='FLOAT',           type=click.FloatRange(min=0), default=0., show_default=True)
@@ -291,9 +291,12 @@ def main(network_pkl, outdir, subdirs, seeds, class_idx, max_batch_size, pretrai
     dist.print0(f'Loading network from "{network_pkl}"...')
     with dnnlib.util.open_url(network_pkl, verbose=(dist.get_rank() == 0)) as f:
         net = pickle.load(f)['ema'].to(device)
-    
+    if net.label_dim:
+        n_class=1000# cifar-10
+    else:
+        n_class=None
     discriminator = dis_lib.get_discriminator(pretrained_classifier_ckpt, discriminator_ckpt,
-                                                     net.label_dim and cond, net.img_resolution, device, enable_grad=True)
+                                                     n_class, net.img_resolution, device, enable_grad=True)
 
     # Other ranks follow.
     if dist.get_rank() == 0:
